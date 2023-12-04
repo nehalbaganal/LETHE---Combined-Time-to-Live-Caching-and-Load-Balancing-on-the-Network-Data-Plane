@@ -1,0 +1,17 @@
+# P4
+*.p4i
+*.p4rt
+*_p4rt.txt
+
+# P4 Compiled JSON
+*.json
+!*p4app*.json
+
+*.pcap
+build*/
+log*/
+pcap*/
+
+__pycache__
+
+test/

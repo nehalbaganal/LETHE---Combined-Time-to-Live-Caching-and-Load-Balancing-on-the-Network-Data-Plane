@@ -1,0 +1,81 @@
+diff --git a/memcached.c b/memcached.c
+index 084aafd..219c0ec 100644
+--- a/memcached.c
++++ b/memcached.c
+@@ -1197,6 +1197,7 @@ bool resp_start(conn *c) {
+     if (IS_UDP(c->transport)) {
+         // need to hold on to some data for async responses.
+         c->resp->request_id = c->request_id;
++        c->resp->letheinfo = c->letheinfo;
+         c->resp->request_addr = c->request_addr;
+         c->resp->request_addr_size = c->request_addr_size;
+     }
+@@ -2403,6 +2404,7 @@ static enum try_read_result try_read_udp(conn *c) {
+ 
+         /* Beginning of UDP packet is the request ID; save it. */
+         c->request_id = buf[0] * 256 + buf[1];
++        c->letheinfo = buf[6] * 256 + buf[7];
+ 
+         /* If this is a multi-packet request, drop it. */
+         if (buf[4] != 0 || buf[5] != 1) {
+@@ -2764,8 +2766,8 @@ static void build_udp_header(unsigned char *hdr, mc_resp *resp) {
+     *hdr++ = resp->udp_sequence % 256;
+     *hdr++ = resp->udp_total / 256;
+     *hdr++ = resp->udp_total % 256;
+-    *hdr++ = 0;
+-    *hdr++ = 0;
++    *hdr++ = resp->letheinfo / 256;
++    *hdr++ = resp->letheinfo % 256;
+     resp->udp_sequence++;
+ }
+ 
+diff --git a/memcached.h b/memcached.h
+index 860fae4..3f19771 100644
+--- a/memcached.h
++++ b/memcached.h
+@@ -761,6 +761,7 @@ typedef struct _mc_resp {
+     bool free; // double free detection.
+     // UDP bits. Copied in from the client.
+     uint16_t    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
++    uint16_t    letheinfo;
+     uint16_t    udp_sequence; /* packet counter when transmitting result */
+     uint16_t    udp_total; /* total number of packets in sequence */
+     struct sockaddr_in6 request_addr; /* udp: Who sent this request */
+@@ -848,6 +849,7 @@ struct conn {
+ 
+     /* data for UDP clients */
+     int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
++    int    letheinfo; /* Incoming UDP request ID, if this is a UDP "connection" */
+     struct sockaddr_in6 request_addr; /* udp: Who sent the most recent request */
+     socklen_t request_addr_size;
+ 
+diff --git a/proto_text.c b/proto_text.c
+index 6fd1212..19dcf24 100644
+--- a/proto_text.c
++++ b/proto_text.c
+@@ -535,7 +535,7 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
+ /* ntokens is overwritten here... shrug.. */
+ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas, bool should_touch) {
+     char *key;
+-    size_t nkey;
++    size_t nkey = 0;
+     item *it;
+     token_t *key_token = &tokens[KEY_TOKEN];
+     int32_t exptime_int = 0;
+@@ -703,7 +703,15 @@ stop:
+         }
+     } else {
+         // Tag the end token onto the most recent response object.
+-        resp_add_iov(resp, "END\r\n", 5);
++        if (nkey != 0) {
++            char *b = (char*)malloc(4+nkey+2);
++            memcpy(b, "END ", 4);
++            memcpy(b+4, key, nkey);
++            memcpy(b+4+nkey, "\r\n", 2);
++            resp_add_iov(resp, b, 4+nkey+2);
++        } else {
++            resp_add_iov(resp, "END\r\n", 5);
++        }
+         conn_set_state(c, conn_mwrite);
+     }
+ }
